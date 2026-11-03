@@ -44,9 +44,23 @@ func TestPercentValue(t *testing.T) {
 			t.Errorf("Set(%q) = %v, %v; want %v", in, p, err, want)
 		}
 	}
-	for _, in := range []string{"", "0", "-5", "abc", "%"} {
+	for _, in := range []string{"", "0", "-5", "abc", "%", "nan", "NaN", "inf", "+Inf"} {
 		if err := p.Set(in); err == nil {
 			t.Errorf("Set(%q) accepted", in)
+		}
+	}
+}
+
+func TestSizeValue(t *testing.T) {
+	var s sizeValue
+	for _, in := range []string{"1", "1B", "500MB", "0.5"} {
+		if err := s.Set(in); err != nil || int64(s) <= 0 {
+			t.Errorf("Set(%q) = %v, %v", in, s, err)
+		}
+	}
+	for _, in := range []string{"0", "0B", "0.4", "-1", "nope"} {
+		if err := s.Set(in); err == nil {
+			t.Errorf("Set(%q) accepted (%v)", in, s)
 		}
 	}
 }
