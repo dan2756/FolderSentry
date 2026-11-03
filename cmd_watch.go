@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -56,20 +57,25 @@ func (a *app) watch(ctx context.Context, args []string) error {
 	var compacted time.Time
 	for {
 		outs, err := m.round(ctx, paths)
-		if ctx.Err() != nil {
-			return nil
-		}
-		if now := a.now(); now.Sub(compacted) >= time.Hour {
-			m.compact(time.Duration(hf.keep))
-			compacted = now
+		// Stopping mid-round still measured some paths. Show that round
+		// before leaving; once does the same. Ctrl-C itself is not a failure.
+		stopped := ctx.Err() != nil
+		if !stopped {
+			if now := a.now(); now.Sub(compacted) >= time.Hour {
+				m.compact(time.Duration(hf.keep))
+				compacted = now
+			}
 		}
 		m.problems(outs)
 		if terr := m.table(outs, a.now().Format("2006-01-02 15:04:05"), *quiet); terr != nil {
 			return terr
 		}
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			// Most likely a full or read-only disk; keep watching.
 			a.errorf("%v", err)
+		}
+		if stopped {
+			return nil
 		}
 		select {
 		case <-ctx.Done():

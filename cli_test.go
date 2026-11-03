@@ -332,6 +332,56 @@ func TestStopMidRoundKeepsDonePaths(t *testing.T) {
 	}
 }
 
+// TestWatchStopPrintsFinishedPaths checks that Ctrl-C mid-round still shows
+// the paths already measured. They are saved either way; hiding the lines
+// made a stopped watch look like the round had not happened.
+func TestWatchStopPrintsFinishedPaths(t *testing.T) {
+	c := newCLI(t)
+	keep := filepath.Join(t.TempDir(), "keep-me")
+	drop := filepath.Join(t.TempDir(), "drop-me")
+	write(t, filepath.Join(keep, "f"), 100)
+	write(t, filepath.Join(drop, "f"), 100)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := &cancelOnWrite{cancel: cancel}
+	var errb bytes.Buffer
+	app := &app{stdout: out, stderr: &errb, now: func() time.Time { return c.now }}
+
+	done := make(chan int, 1)
+	go func() {
+		done <- app.run(ctx, []string{
+			"watch", keep, drop, "--interval", "1h", "--quiet", "--max", "1B",
+			"--hook", "echo hook ran", "--history", c.history,
+		})
+	}()
+	var code int
+	select {
+	case code = <-done:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("watch did not stop after the hook ran")
+	}
+	if code != exitOK {
+		t.Fatalf("watch exit %d, want 0\nstderr:\n%s\nstdout:\n%s", code, errb.String(), out.buf.String())
+	}
+	got := out.buf.String()
+	if !strings.Contains(got, keep) || !strings.Contains(got, "ALERT max") {
+		t.Fatalf("stopped watch hid the finished path:\n%s\nstderr:\n%s", got, errb.String())
+	}
+	if strings.Contains(got, drop) {
+		t.Fatalf("printed a path that was not measured before the stop:\n%s", got)
+	}
+
+	samples, err := history.Open(c.history).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || samples[0].Path != keep {
+		t.Fatalf("history after the stopped watch = %+v, want %s", samples, keep)
+	}
+}
+
 type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("no space left on device") }
