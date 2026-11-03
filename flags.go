@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -209,6 +210,12 @@ func (v *sizeValue) Set(s string) error {
 	if err != nil {
 		return err
 	}
+	// Zero is what an unset flag looks like, and it disables the trigger.
+	// An explicit 0 (or a fraction that rounds to 0 bytes) would silently
+	// never alert, so reject it.
+	if n <= 0 {
+		return fmt.Errorf("invalid size %q: must be at least 1 byte", s)
+	}
 	*v = sizeValue(n)
 	return nil
 }
@@ -225,7 +232,8 @@ type percentValue float64
 
 func (v *percentValue) Set(s string) error {
 	f, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(s), "%"), 64)
-	if err != nil || f <= 0 {
+	// NaN and +Inf pass a `f <= 0` check and then never compare as reached.
+	if err != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
 		return fmt.Errorf("invalid percentage %q", s)
 	}
 	*v = percentValue(f)

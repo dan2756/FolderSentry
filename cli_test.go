@@ -211,6 +211,9 @@ func TestExitCodes(t *testing.T) {
 		{[]string{"du", "-h"}, exitOK},
 		{[]string{"du", missing}, exitError},
 		{[]string{"once", t.TempDir(), "--spike", "lots"}, exitUsage},
+		{[]string{"once", t.TempDir(), "--spike", "0"}, exitUsage},
+		{[]string{"once", t.TempDir(), "--max", "0B"}, exitUsage},
+		{[]string{"once", t.TempDir(), "--spike-pct", "nan"}, exitUsage},
 		{[]string{"once", missing}, exitError},
 		{[]string{"watch", t.TempDir(), "--interval", "0"}, exitUsage},
 	}
