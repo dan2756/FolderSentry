@@ -67,6 +67,11 @@ func (c *Cooldown) Save(file string, now time.Time) error {
 	merged := make(map[string]time.Time)
 	if data, err := os.ReadFile(file); err == nil {
 		_ = json.Unmarshal(data, &merged)
+		// A JSON null unmarshals as a nil map, and assigning to that panics.
+		// Treat it like any other unusable file: keep only what we have.
+		if merged == nil {
+			merged = make(map[string]time.Time)
+		}
 	}
 	for p, t := range c.last {
 		if t.After(merged[p]) {

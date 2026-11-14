@@ -311,3 +311,39 @@ func TestLoadCooldownCorrupt(t *testing.T) {
 		t.Errorf("corrupt state: %v", err)
 	}
 }
+
+// TestCooldownSaveNull checks that a cooldown file whose JSON is null, or
+// that holds a null time, does not crash the save after an alert. Load
+// treats a null file as empty; Save has to do the same, or the nil map
+// panics when the alert is recorded.
+func TestCooldownSaveNull(t *testing.T) {
+	bodies := []string{"null", "null\n", "  null\n", `{"/old": null}`, `{"/a": null}`}
+	for _, body := range bodies {
+		t.Run(body, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "cooldown.json")
+			if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c, err := LoadCooldown(file, time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !c.Allow("/a", t0) {
+				t.Fatal("null state held back the first alert")
+			}
+			if err := c.Save(file, t0); err != nil {
+				t.Fatal(err)
+			}
+			next, err := LoadCooldown(file, time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if next.Allow("/a", t0.Add(time.Minute)) {
+				t.Fatal("alert was not saved")
+			}
+			if !next.Allow("/fresh", t0.Add(time.Minute)) {
+				t.Fatal("unrelated path held back")
+			}
+		})
+	}
+}
