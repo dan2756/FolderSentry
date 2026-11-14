@@ -44,6 +44,9 @@ type outcome struct {
 // written so that a full disk still gets its alert. If ctx ends mid-round,
 // the paths measured so far are still recorded, along with their alerts.
 func (m *monitor) round(ctx context.Context, paths []string) ([]outcome, error) {
+	if err := m.reloadCooldown(); err != nil {
+		m.a.errorf("warning: reading cooldown state: %v", err)
+	}
 	outs := make([]outcome, 0, len(paths))
 	var fresh []history.Sample
 	for _, p := range paths {
@@ -83,6 +86,18 @@ func (m *monitor) round(ctx context.Context, paths []string) ([]outcome, error) 
 		m.prev[history.StoredPath(s.Path)] = s
 	}
 	return outs, ctx.Err()
+}
+
+// reloadCooldown picks up alert times written since this monitor was
+// created or last reloaded. A missing or unreadable-as-JSON file leaves
+// the in-memory times alone.
+func (m *monitor) reloadCooldown() error {
+	disk, err := trigger.LoadCooldown(m.coolFile, m.cooldown.Period)
+	if err != nil {
+		return err
+	}
+	m.cooldown.Merge(disk)
+	return nil
 }
 
 // saveCooldown persists the alert times recorded since the last save. It

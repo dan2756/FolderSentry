@@ -271,6 +271,38 @@ func TestCooldownPersists(t *testing.T) {
 	}
 }
 
+func TestCooldownMerge(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "cooldown.json")
+	c, err := LoadCooldown(file, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Allow("/a", t0.Add(50*time.Minute)) {
+		t.Fatal("first alert held back")
+	}
+	if err := c.Save(file, t0.Add(50*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	older := NewCooldown(time.Hour)
+	// /a is earlier than the time already stored; /b is new.
+	if !older.Allow("/a", t0) || !older.Allow("/b", t0.Add(10*time.Minute)) {
+		t.Fatal("setup alerts held back")
+	}
+	c.Merge(older)
+	c.Merge(nil)
+	if c.Unsaved() {
+		t.Error("Merge marked the cooldown unsaved")
+	}
+	// 61m is past the older time's hour but only 11m after the newer one.
+	if c.Allow("/a", t0.Add(61*time.Minute)) {
+		t.Error("Merge replaced a newer time with an older one")
+	}
+	if c.Allow("/b", t0.Add(30*time.Minute)) {
+		t.Error("/b was not merged")
+	}
+}
+
 func TestCooldownSavePreservesMode(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "cooldown.json")
 	c, err := LoadCooldown(file, time.Hour)
