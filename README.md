@@ -167,7 +167,8 @@ them fires.
 After a path alerts it is held back for `--cooldown`: the table then shows
 `spike (cooldown)` instead of `ALERT spike` and the hook doesn't run. The
 cooldown is saved next to the history (`history.cooldown.json`), so it
-holds across separate `once` runs and `watch` restarts.
+holds across separate `once` runs, `watch` restarts, and later rounds of a
+`watch` that is still running.
 
 ## Hooks
 

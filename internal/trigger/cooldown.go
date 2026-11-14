@@ -55,6 +55,23 @@ func LoadCooldown(file string, period time.Duration) (*Cooldown, error) {
 // Unsaved reports whether an alert was recorded since loading or saving.
 func (c *Cooldown) Unsaved() bool { return c.dirty }
 
+// Merge keeps the later alert time for each path from other. It does not
+// record an alert. A running watch merges the shared file at the start of
+// each round, so an alert a cron once saved since startup holds it back too.
+func (c *Cooldown) Merge(other *Cooldown) {
+	if other == nil {
+		return
+	}
+	if c.last == nil {
+		c.last = make(map[string]time.Time)
+	}
+	for p, t := range other.last {
+		if t.After(c.last[p]) {
+			c.last[p] = t
+		}
+	}
+}
+
 // Save writes the alert times to file if any alert was recorded. It merges
 // with what is already there, keeping the latest time per path, because a
 // watch and a cron job may share the file; the caller must keep other

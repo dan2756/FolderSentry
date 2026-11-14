@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dan2756/sizewatch/internal/history"
+	"github.com/dan2756/sizewatch/internal/trigger"
 )
 
 // cli runs sizewatch in-process with a fixed clock.
@@ -448,6 +449,74 @@ func TestBaselineSurvivesHistoryWriteFailure(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Bytes != 1000 || got[1].Bytes != third[0].Sample.Bytes {
 		t.Fatalf("history = %+v, want the first sample and the third", got)
+	}
+}
+
+// TestRunningWatchHonorsSharedCooldown checks that a watch, which keeps one
+// monitor for the whole process, notices an alert another run saved to the
+// shared cooldown file. The copy read at startup would otherwise let the
+// hook run again inside the period.
+func TestRunningWatchHonorsSharedCooldown(t *testing.T) {
+	c := newCLI(t)
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "a"), 1000)
+
+	var stderr bytes.Buffer
+	now := c.now
+	a := &app{stdout: io.Discard, stderr: &stderr, now: func() time.Time { return now }}
+	m, err := a.newMonitor(
+		&measureFlags{apparent: true},
+		&triggerFlags{spike: 500_000, cooldown: durationValue(30 * time.Minute)},
+		&historyFlags{file: c.history},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := m.round(context.Background(), []string{dir})
+	if err != nil || len(first) != 1 || first[0].fired() {
+		t.Fatalf("first round = %+v, %v", first, err)
+	}
+
+	write(t, filepath.Join(dir, "b"), 600_000)
+	now = now.Add(time.Minute)
+	second, err := m.round(context.Background(), []string{dir})
+	if err != nil || len(second) != 1 || !second[0].fired() {
+		t.Fatalf("second round = %+v, %v\n%s", second, err, stderr.String())
+	}
+
+	// Another run alerts later. 30m after our own alert is long enough for
+	// it to be recorded, and still inside the period when we sample again.
+	file := cooldownFile(c.history)
+	other, err := trigger.LoadCooldown(file, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !other.Allow(dir, now.Add(30*time.Minute)) {
+		t.Fatal("other run was held back by our alert")
+	}
+	if err := other.Save(file, now.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	write(t, filepath.Join(dir, "c"), 600_000)
+	now = now.Add(39 * time.Minute) // 9m after the other run, 39m after ours
+	third, err := m.round(context.Background(), []string{dir})
+	if err != nil {
+		t.Fatalf("third round: %v\n%s", err, stderr.String())
+	}
+	if len(third) != 1 || !third[0].Cooldown || third[0].fired() {
+		t.Fatalf("third round = %+v, want the spike held by the other run's cooldown", third)
+	}
+
+	write(t, filepath.Join(dir, "d"), 600_000)
+	now = now.Add(30 * time.Minute)
+	fourth, err := m.round(context.Background(), []string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fourth) != 1 || !fourth[0].fired() {
+		t.Fatalf("fourth round = %+v, want an alert once that cooldown has passed", fourth)
 	}
 }
 
